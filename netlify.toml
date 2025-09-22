@@ -1,0 +1,7 @@
+# Netlify Build & Functions Settings
+# This file tells Netlify where to find our serverless functions.
+
+[build]
+  # Specifies the directory where our serverless function files are located.
+  functions = "netlify/functions"
+

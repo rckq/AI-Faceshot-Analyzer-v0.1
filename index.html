@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>💖 AI 프로필 사진 분석기 💖</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Gamja+Flower&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        font-family: "Gamja Flower", cursive;
+      }
+      /* 귀여운 로딩 애니메이션 */
+      .bouncing-loader {
+        display: flex;
+        justify-content: center;
+      }
+      .bouncing-loader > div {
+        width: 20px;
+        height: 20px;
+        margin: 3px 6px;
+        border-radius: 50%;
+        background-color: #fca5a5; /* red-300 */
+        opacity: 1;
+        animation: bouncing-loader 0.8s infinite alternate;
+      }
+      .bouncing-loader > div:nth-child(2) {
+        animation-delay: 0.2s;
+      }
+      .bouncing-loader > div:nth-child(3) {
+        animation-delay: 0.4s;
+      }
+      @keyframes bouncing-loader {
+        to {
+          opacity: 0.1;
+          transform: translateY(-16px);
+        }
+      }
+      /* 결과 점수 바 애니메이션 */
+      @keyframes fill-bar {
+        from {
+          width: 0%;
+        }
+        to {
+          width: var(--target-width);
+        }
+      }
+      .score-bar-fill {
+        animation: fill-bar 1.5s ease-out forwards;
+      }
+      /* 화면 전환 효과 */
+      .view-section {
+        transition: opacity 0.5s ease-in-out, transform 0.5s ease-in-out;
+      }
+      .view-section.hidden {
+        opacity: 0;
+        transform: scale(0.95);
+        pointer-events: none;
+        position: absolute;
+      }
+      
+      /* 메인 타이틀 반응형 스타일 */
+      .main-title {
+        font-size: clamp(1.5rem, 7vw, 2.25rem);
+        line-height: 1.2;
+      }
+    </style>
+  </head>
+  <body class="bg-pink-50 flex items-center justify-center min-h-screen">
+    <div
+      class="w-full max-w-md mx-auto bg-white rounded-3xl shadow-xl p-6 md:p-8 m-4 relative overflow-hidden"
+    >
+      <!-- Initial Upload View -->
+      <div id="upload-section" class="view-section">
+        <div class="text-center">
+          <h1 class="main-title font-bold text-gray-800">
+            ✨ AI 프로필 사진 분석기 ✨
+          </h1>
+          <p class="text-gray-500 mt-2 text-lg">
+            당신의 매력, AI가 찾아드려요!
+          </p>
+        </div>
+        <div class="mt-8">
+          <div
+            class="w-full h-64 border-2 border-dashed border-pink-300 rounded-2xl flex items-center justify-center bg-pink-100 bg-opacity-50"
+          >
+            <img
+              id="image-preview"
+              src=""
+              alt="Image preview"
+              class="hidden max-h-full max-w-full rounded-lg"
+            />
+            <div id="upload-placeholder" class="text-center text-pink-400">
+              <svg
+                class="mx-auto h-16 w-16"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke-width="1.5"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.776 48.776 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z"
+                />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z"
+                />
+              </svg>
+              <p class="mt-2 text-xl">클릭해서 사진 올리기!</p>
+            </div>
+          </div>
+        </div>
+        <div class="mt-6 space-y-3">
+          <input
+            type="file"
+            id="image-upload"
+            class="hidden"
+            accept="image/*"
+          />
+          <button
+            onclick="document.getElementById('image-upload').click()"
+            class="w-full bg-fuchsia-500 text-white font-bold py-3 px-4 rounded-xl text-lg hover:bg-fuchsia-600 transition-all duration-300 transform hover:scale-105 shadow-lg"
+          >
+            앨범에서 사진 선택 💖
+          </button>
+          <button
+            id="next-button"
+            class="w-full bg-slate-800 text-white font-bold py-3 px-4 rounded-xl text-lg hover:bg-slate-900 transition-all duration-300 transform hover:scale-105 shadow-lg hidden"
+          >
+            정보 입력하고 결과보기 ✨
+          </button>
+        </div>
+      </div>
+
+      <!-- Contact Info View -->
+      <div id="contact-section" class="view-section hidden">
+        <div class="text-center">
+          <h2 class="text-3xl font-bold text-gray-800">
+            결과를 보기 전, 마지막 단계!
+          </h2>
+          <p class="text-gray-500 mt-4 text-lg">
+            개인정보를 입력해주셔야 결과를 보실 수 있습니다.<br />
+            결과가 나오기 까지 약 6초가 소요됩니다.
+          </p>
+        </div>
+        <form id="contact-form" class="space-y-4 mt-8">
+          <input
+            type="text"
+            id="user-name"
+            placeholder="이름"
+            class="w-full text-lg p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-fuchsia-400"
+            required
+          />
+          <input
+            type="tel"
+            id="user-contact"
+            placeholder="연락처"
+            class="w-full text-lg p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-fuchsia-400"
+            required
+          />
+          <button
+            type="submit"
+            class="w-full bg-slate-800 text-white font-bold py-3 px-4 rounded-lg hover:bg-slate-900 transition-colors text-lg"
+          >
+            결과 분석 시작하기 🚀
+          </button>
+        </form>
+        <p
+          id="form-success-message"
+          class="text-center text-green-600 mt-4 hidden"
+        >
+          정보가 성공적으로 제출되었습니다!
+        </p>
+      </div>
+
+      <!-- Loading View -->
+      <div id="loading-section" class="view-section hidden text-center py-16">
+        <div class="bouncing-loader mx-auto">
+          <div></div>
+          <div></div>
+          <div></div>
+        </div>
+        <p class="text-gray-600 font-semibold text-2xl mt-8">
+          AI가 당신의 매력을 스캔 중이에요! ✨
+        </p>
+        <p class="text-gray-400 mt-2 text-lg">
+          두근두근... 잠시만 기다려주세요!
+        </p>
+      </div>
+
+      <!-- Result View -->
+      <div id="result-section" class="view-section hidden">
+        <div class="text-center">
+          <h2 class="text-3xl font-bold text-gray-800">AI 분석 결과!</h2>
+          <img
+            id="result-image"
+            src=""
+            alt="Analyzed image"
+            class="mt-4 w-48 h-48 mx-auto rounded-full object-cover shadow-2xl border-4 border-white"
+          />
+        </div>
+
+        <div class="mt-8 space-y-6">
+          <!-- 인물 점수 -->
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <h3 class="font-bold text-xl text-gray-700">🤵 인물</h3>
+              <span
+                id="figure-score"
+                class="font-bold text-xl text-fuchsia-500"
+              ></span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-5">
+              <div
+                id="figure-bar"
+                class="bg-fuchsia-500 h-5 rounded-full score-bar-fill"
+                style="width: 0%"
+              ></div>
+            </div>
+            <p
+              id="figure-critique"
+              class="text-base text-gray-700 mt-2 p-3 bg-fuchsia-50 rounded-lg"
+            ></p>
+          </div>
+          <!-- 배경 점수 -->
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <h3 class="font-bold text-xl text-gray-700">🏞️ 배경</h3>
+              <span
+                id="background-score"
+                class="font-bold text-xl text-emerald-500"
+              ></span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-5">
+              <div
+                id="background-bar"
+                class="bg-emerald-500 h-5 rounded-full score-bar-fill"
+                style="width: 0%"
+              ></div>
+            </div>
+            <p
+              id="background-critique"
+              class="text-base text-gray-700 mt-2 p-3 bg-emerald-50 rounded-lg"
+            ></p>
+          </div>
+          <!-- 감성 점수 -->
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <h3 class="font-bold text-xl text-gray-700">✨ 감성</h3>
+              <span
+                id="vibe-score"
+                class="font-bold text-xl text-amber-500"
+              ></span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-5">
+              <div
+                id="vibe-bar"
+                class="bg-amber-500 h-5 rounded-full score-bar-fill"
+                style="width: 0%"
+              ></div>
+            </div>
+            <p
+              id="vibe-critique"
+              class="text-base text-gray-700 mt-2 p-3 bg-amber-50 rounded-lg"
+            ></p>
+          </div>
+        </div>
+
+        <div class="mt-8 text-center bg-gray-100 p-4 rounded-xl shadow-inner">
+          <h3 class="font-bold text-gray-800 text-lg">AI의 최종 한 줄 평</h3>
+          <p id="final-critique" class="text-xl mt-2 text-gray-700 italic">"</p>
+        </div>
+
+        <div
+          class="mt-8 text-center border-t-2 border-dashed border-pink-200 pt-6"
+        >
+          <h3 class="text-2xl font-bold text-gray-800">
+            베럴댄미 : 남성그루밍 프로필 서비스
+          </h3>
+          <p class="text-gray-600 mt-2 text-lg">
+            인생 프로필 사진, 전문가와 함께!
+          </p>
+          <div class="flex justify-center space-x-4 mt-4">
+            <a
+              href="https://www.instagram.com/better.than.me2040/"
+              target="_blank"
+              class="bg-gradient-to-r from-pink-500 to-orange-400 text-white py-2 px-5 rounded-lg hover:shadow-lg transition-shadow text-base"
+              >인스타그램</a
+            >
+            <a
+              href="https://open.kakao.com/o/sDAisnDh"
+              target="_blank"
+              class="bg-yellow-400 text-gray-800 py-2 px-5 rounded-lg hover:shadow-lg transition-shadow text-base"
+              >오픈채팅</a
+            >
+          </div>
+          <p class="text-sm text-gray-500 mt-2">
+            프로필사진 및 냉정한 외모평가를 원한다면 오픈채팅으로 연락주세요
+          </p>
+        </div>
+
+        <div class="mt-6 text-center">
+          <button
+            onclick="resetApp()"
+            class="w-full bg-fuchsia-500 text-white font-bold py-3 px-4 rounded-xl text-lg hover:bg-fuchsia-600 transition-all duration-300 transform hover:scale-105 shadow-lg"
+          >
+            다른 사진으로 또 하기! 📸
+          </button>
+        </div>
+      </div>
+
+      <!-- Custom Alert Modal -->
+      <div
+        id="alert-modal"
+        class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+      >
+        <div
+          class="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm text-center transform transition-all animate-in zoom-in-75"
+        >
+          <p id="alert-message" class="text-gray-700 text-xl"></p>
+          <button
+            onclick="closeModal()"
+            class="mt-8 bg-fuchsia-500 text-white font-bold py-2 px-8 rounded-lg hover:bg-fuchsia-600 transition-colors text-lg"
+          >
+            알겠어요!
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const uploadSection = document.getElementById("upload-section");
+      const contactSection = document.getElementById("contact-section");
+      const loadingSection = document.getElementById("loading-section");
+      const resultSection = document.getElementById("result-section");
+      const imageUpload = document.getElementById("image-upload");
+      const imagePreview = document.getElementById("image-preview");
+      const uploadPlaceholder = document.getElementById("upload-placeholder");
+      const nextButton = document.getElementById("next-button");
+      const resultImage = document.getElementById("result-image");
+      const contactForm = document.getElementById("contact-form");
+
+      const alertModal = document.getElementById("alert-modal");
+      const alertMessage = document.getElementById("alert-message");
+
+      let uploadedImageBase64 = null;
+
+      // 이미지 업로드 처리
+      imageUpload.addEventListener("change", (event) => {
+        const file = event.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            uploadedImageBase64 = e.target.result;
+            imagePreview.src = uploadedImageBase64;
+            imagePreview.classList.remove("hidden");
+            uploadPlaceholder.classList.add("hidden");
+            nextButton.classList.remove("hidden");
+          };
+          reader.readAsDataURL(file);
+        }
+      });
+
+      // '정보 입력' 버튼 클릭 -> 연락처 폼으로 이동
+      nextButton.addEventListener("click", () => {
+        if (!uploadedImageBase64) {
+          showAlert("먼저 사진을 선택해주세요!");
+          return;
+        }
+        switchView("contact-section");
+      });
+
+      // 연락처 폼 제출 -> 분석 시작
+      contactForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const name = document.getElementById("user-name").value;
+        const contact = document.getElementById("user-contact").value;
+
+        if (!name || !contact) {
+          showAlert("이름과 연락처를 모두 입력해주세요!");
+          return;
+        }
+
+        // UI 상태 변경: 로딩
+        switchView("loading-section");
+
+        // 1. 개인정보 구글 시트로 전송
+        const scriptURL =
+          "https://script.google.com/macros/s/AKfycbx49yWyeT5fMRqRa_DrK1_0spdmPpc9bUh_hk3mnX6QzDyaJ3RKWe3OPs4fDzZmQed_/exec";
+        const formData = new FormData();
+        formData.append("name", name);
+        formData.append("contact", contact);
+        formData.append("timestamp", new Date().toLocaleString("ko-KR"));
+        formData.append("image", uploadedImageBase64);
+
+        fetch(scriptURL, { method: "POST", body: formData })
+          .then((response) =>
+            console.log("Successfully submitted to Google Sheet", response)
+          )
+          .catch((error) =>
+            console.error("Error submitting to Google Sheet!", error.message)
+          );
+
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+
+          const validationPrompt =
+            "Is this image a real photograph of a person suitable for a profile picture, not an AI-generated image, illustration, or character? Please answer with only 'Yes' or 'No'.";
+          const validationResult = await callGeminiAPI(
+            validationPrompt,
+            uploadedImageBase64
+          );
+
+          if (!validationResult.toLowerCase().includes("yes")) {
+            showAlert("앗! 실제 인물 사진을 넣어야 정확한 평가가 가능해요.");
+            resetToUpload();
+            return;
+          }
+
+          const analysisPrompt = `You are a brutally honest but fair profile picture evaluator with a witty and friendly personality. Analyze this image on a scale of 0 to 100 for '인물' (Figure), '배경' (Background), and '감성' (Vibe). Provide the response in a JSON object format. The JSON object must contain these keys: 'figureScore', 'backgroundScore', 'vibeScore', 'figureCritique', 'backgroundCritique', 'vibeCritique', and 'finalCritique'. The critiques must be in Korean, brutally honest, helpful, and written in a cute, friendly tone. The 'finalCritique' must be a single, sharp, and witty summary sentence in Korean.`;
+          const analysisResultText = await callGeminiAPI(
+            analysisPrompt,
+            uploadedImageBase64
+          );
+
+          const jsonString = analysisResultText
+            .replace(/```json\n?|```/g, "")
+            .trim();
+          const analysisResult = JSON.parse(jsonString);
+
+          displayResults(analysisResult);
+        } catch (error) {
+          console.error("Error during analysis:", error);
+          // showAlert("분석 중 오류가 발생했어요. 다시 시도해 주세요!");
+          resetToUpload();
+        }
+      });
+
+      // Gemini API 호출 함수 (수정됨)
+      async function callGeminiAPI(prompt, imageBase64) {
+        const apiUrl = `/.netlify/functions/analyzeImage`;
+        try {
+          const response = await fetch(apiUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            // *** FIX: prompt와 imageBase64를 함께 보냅니다. ***
+            body: JSON.stringify({
+              prompt: prompt, // <-- 이 부분을 추가!
+              imageBase64: imageBase64,
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error(
+              `Serverless function failed with status ${response.status}`
+            );
+          }
+
+          const result = await response.json();
+
+          // AI가 유해성 등으로 답변을 거부했을 경우의 처리
+          if (result.promptFeedback && result.promptFeedback.blockReason) {
+            console.error(
+              "Analysis blocked by API:",
+              result.promptFeedback.blockReason
+            );
+            showAlert("AI가 분석을 거부했어요. 다른 사진으로 시도해보세요.");
+            throw new Error("API content blocked");
+          }
+
+          if (result.candidates && result.candidates[0].content.parts[0].text) {
+            return result.candidates[0].content.parts[0].text;
+          } else {
+            throw new Error(
+              "Invalid API response format from serverless function"
+            );
+          }
+        } catch (error) {
+          console.error("Error calling serverless function:", error);
+          if (error.message !== "API content blocked") {
+            showAlert(
+              "분석 중 서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+            );
+          }
+          throw error; // 오류를 다시 던져서 후속 처리를 막습니다.
+        }
+      }
+
+      // 결과 표시 함수
+      function displayResults(data) {
+        resultImage.src = uploadedImageBase64;
+
+        document.getElementById(
+          "figure-score"
+        ).textContent = `${data.figureScore}점`;
+        document.getElementById(
+          "background-score"
+        ).textContent = `${data.backgroundScore}점`;
+        document.getElementById(
+          "vibe-score"
+        ).textContent = `${data.vibeScore}점`;
+
+        const figureBar = document.getElementById("figure-bar");
+        const backgroundBar = document.getElementById("background-bar");
+        const vibeBar = document.getElementById("vibe-bar");
+
+        // 애니메이션을 위해 스타일 변수 설정
+        figureBar.style.setProperty("--target-width", `${data.figureScore}%`);
+        backgroundBar.style.setProperty(
+          "--target-width",
+          `${data.backgroundScore}%`
+        );
+        vibeBar.style.setProperty("--target-width", `${data.vibeScore}%`);
+
+        document.getElementById("figure-critique").textContent =
+          data.figureCritique;
+        document.getElementById("background-critique").textContent =
+          data.backgroundCritique;
+        document.getElementById("vibe-critique").textContent =
+          data.vibeCritique;
+        document.getElementById(
+          "final-critique"
+        ).textContent = `"${data.finalCritique}"`;
+
+        // UI 상태 변경: 결과
+        switchView("result-section");
+      }
+
+      // 커스텀 알림창 보이기
+      function showAlert(message) {
+        alertMessage.textContent = message;
+        alertModal.classList.remove("hidden");
+      }
+
+      // 커스텀 알림창 닫기
+      function closeModal() {
+        alertModal.classList.add("hidden");
+      }
+
+      function switchView(viewId) {
+        document.querySelectorAll(".view-section").forEach((section) => {
+          section.classList.add("hidden");
+        });
+        document.getElementById(viewId).classList.remove("hidden");
+      }
+
+      // 초기 업로드 화면으로 리셋
+      function resetToUpload() {
+        switchView("upload-section");
+      }
+
+      // 전체 앱 리셋
+      function resetApp() {
+        uploadedImageBase64 = null;
+        imagePreview.src = "";
+        imagePreview.classList.add("hidden");
+        uploadPlaceholder.classList.remove("hidden");
+        nextButton.classList.add("hidden");
+        contactForm.reset();
+        resetToUpload();
+      }
+    </script>
+  </body>
+</html>
