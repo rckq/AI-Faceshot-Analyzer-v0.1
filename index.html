@@ -452,8 +452,7 @@
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       // Google Apps Script 웹앱 URL (시트 기록용)
-      const scriptURL =
-        "https://script.google.com/macros/s/AKfycbzeqSuS9PKnpesHA-XLXmch_pVLPYG190-k9SGMwsv37JS0moJrvkLiVIxj63UgFx1Q/exec";
+      // const scriptURL = "<moved-to-server>"; // Apps Script 호출은 서버(Netlify 함수)에서만 수행
 
       // 방문자/환경 메타 수집 (clientId + FingerprintJS + IP/UA/lang/referrer)
       window.__clientId =
@@ -612,87 +611,51 @@
 
         // UI 상태 변경: 로딩
         switchView("loading-section");
-
-        // 1단계: 개인정보 먼저 기록 (PENDING)
-        const createFD = new FormData();
-        createFD.append("action", "create");
-        createFD.append("requestId", requestId);
-        createFD.append("name", name);
-        createFD.append("contact", contact);
-        createFD.append("timestamp", new Date().toLocaleString("ko-KR"));
-        createFD.append("image", uploadedImageBase64);
-        createFD.append("consent", consentChecked ? "Y" : "N");
-        // 방문자 메타 (지문 + 클라이언트ID + 환경)
-        createFD.append("clientId", window.__clientId || "");
-        createFD.append("visitorId", window.__visitorId || "");
-        createFD.append("ip", window.__clientIp || "");
-        createFD.append("ua", window.__ua || "");
-        createFD.append("lang", window.__lang || "");
-        createFD.append("referrer", window.__referrer || "");
+        // 서버로 단일 요청 (create + analyze + update)
         try {
-          await fetch(scriptURL, { method: "POST", body: createFD });
-        } catch (_) {
-          // 개인정보 기록 실패 시에도 분석은 계속 시도 (이후 재시도 가능)
-        }
+          const payload = {
+            mode: "full",
+            requestId,
+            name,
+            contact,
+            timestamp: new Date().toLocaleString("ko-KR"),
+            imageBase64: uploadedImageBase64,
+            consent: !!consentChecked,
+            clientId: window.__clientId || "",
+            visitorId: window.__visitorId || "",
+            ip: window.__clientIp || "",
+            ua: window.__ua || "",
+            lang: window.__lang || "",
+            referrer: window.__referrer || "",
+          };
 
-        // (변경) 시트 점수/코멘트 전송은 분석 완료 후 2단계에서 수행합니다
+          const res = await fetch("/.netlify/functions/analyzeImage", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
 
-        try {
-          await new Promise((resolve) => setTimeout(resolve, 1500));
+          if (!res.ok) {
+            throw new Error(`Server error ${res.status}`);
+          }
+          const data = await res.json();
+          const result = data.result || data; // 호환 처리
 
-          const validationPrompt =
-            "Is this image a real photograph of a person suitable for a profile picture, not an AI-generated image, illustration, or character? Please answer with only 'Yes' or 'No'.";
-          const validationResult = await callGeminiAPI(
-            validationPrompt,
-            uploadedImageBase64
-          );
-
-          if (!validationResult.toLowerCase().includes("yes")) {
-            showAlert("앗! 실제 인물 사진을 넣어야 정확한 평가가 가능해요.");
+          if (!result.isValid) {
+            showAlert(
+              result.reason ||
+                "앗! 실제 인물 사진을 넣어야 정확한 평가가 가능해요."
+            );
             resetToUpload();
             return;
           }
 
-          const analysisPrompt = `You are a brutally honest but fair profile picture evaluator with a witty and friendly personality. Analyze this image on a scale of 0 to 100 for '인물' (Figure), '배경' (Background), and '감성' (Vibe). Provide the response in a JSON object format. The JSON object must contain these keys: 'figureScore', 'backgroundScore', 'vibeScore', 'figureCritique', 'backgroundCritique', 'vibeCritique', and 'finalCritique'. The critiques must be in Korean, brutally honest, helpful, and written in a cute, friendly tone. The 'finalCritique' must be a single, sharp, and witty summary sentence in Korean.`;
-          const analysisResultText = await callGeminiAPI(
-            analysisPrompt,
-            uploadedImageBase64
-          );
-
-          const jsonString = analysisResultText
-            .replace(/```json\n?|```/g, "")
-            .trim();
-          const analysisResult = JSON.parse(jsonString);
-
-          // 2단계: 기존 행 업데이트 (DONE)
-          const formData = new FormData();
-          formData.append("action", "update");
-          formData.append("requestId", requestId);
-          // 점수
-          formData.append("figureScore", analysisResult.figureScore);
-          formData.append("backgroundScore", analysisResult.backgroundScore);
-          formData.append("vibeScore", analysisResult.vibeScore);
-          // 코멘트
-          formData.append("figureCritique", analysisResult.figureCritique);
-          formData.append(
-            "backgroundCritique",
-            analysisResult.backgroundCritique
-          );
-          formData.append("vibeCritique", analysisResult.vibeCritique);
-          formData.append("finalCritique", analysisResult.finalCritique);
-
-          fetch(scriptURL, { method: "POST", body: formData })
-            .then((response) =>
-              console.log("Submitted to Google Sheet with AI scores", response)
-            )
-            .catch((error) =>
-              console.error("Error submitting to Google Sheet!", error.message)
-            );
-
-          displayResults(analysisResult);
+          displayResults(result);
         } catch (error) {
           console.error("Error during analysis:", error);
-          // showAlert("분석 중 오류가 발생했어요. 다시 시도해 주세요!");
+          showAlert(
+            "분석 중 서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+          );
           resetToUpload();
         }
       });

@@ -1,34 +1,157 @@
 exports.handler = async function (event) {
   try {
-    // *** FIX: 클라이언트로부터 prompt와 imageBase64를 모두 받습니다. ***
-    const { prompt, imageBase64 } = JSON.parse(event.body);
+    const body = JSON.parse(event.body || "{}");
 
-    // 둘 중 하나라도 없으면 오류를 반환합니다.
-    if (!prompt || !imageBase64) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "Missing prompt or imageBase64" }),
-      };
-    }
-
-    // Netlify 환경 변수에서 안전하게 API 키를 가져옵니다.
     const apiKey = process.env.GEMINI_API_KEY;
+    const appsScriptUrl = process.env.APPS_SCRIPT_URL; // Google Apps Script WebApp URL (optional)
     if (!apiKey) {
       return {
         statusCode: 500,
-        body: JSON.stringify({
-          error: "API key is not set in Netlify environment variables",
-        }),
+        body: JSON.stringify({ error: "Missing GEMINI_API_KEY" }),
       };
     }
 
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
 
+    // Backward compatibility: direct prompt + imageBase64
+    if (body.prompt && body.imageBase64 && !body.mode) {
+      const payload = {
+        contents: [
+          {
+            parts: [
+              { text: body.prompt },
+              {
+                inlineData: {
+                  mimeType: "image/jpeg",
+                  data: body.imageBase64.split(",")[1],
+                },
+              },
+            ],
+          },
+        ],
+        safetySettings: [
+          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+          {
+            category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            threshold: "BLOCK_NONE",
+          },
+          {
+            category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+            threshold: "BLOCK_NONE",
+          },
+        ],
+      };
+
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      return { statusCode: response.status, body: JSON.stringify(result) };
+    }
+
+    // Integrated flow: create (sheet) -> analyze -> update (sheet)
+    const {
+      mode,
+      requestId,
+      name,
+      contact,
+      timestamp,
+      imageBase64,
+      consent,
+      clientId,
+      visitorId,
+      ip,
+      ua,
+      lang,
+      referrer,
+    } = body;
+
+    if (mode !== "full") {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          error:
+            "Invalid request: expected mode 'full' or {prompt,imageBase64}",
+        }),
+      };
+    }
+    if (!imageBase64 || !requestId || !name || !contact) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          error:
+            "Missing required fields (imageBase64, requestId, name, contact)",
+        }),
+      };
+    }
+
+    // 1) Create (Apps Script optional)
+    if (appsScriptUrl) {
+      try {
+        const fdCreate = new FormData();
+        fdCreate.append("action", "create");
+        fdCreate.append("requestId", requestId);
+        fdCreate.append("name", name);
+        fdCreate.append("contact", contact);
+        fdCreate.append(
+          "timestamp",
+          timestamp || new Date().toLocaleString("ko-KR")
+        );
+        fdCreate.append("image", imageBase64);
+        fdCreate.append("consent", consent ? "Y" : "N");
+        fdCreate.append("clientId", clientId || "");
+        fdCreate.append("visitorId", visitorId || "");
+        fdCreate.append("ip", ip || "");
+        fdCreate.append("ua", ua || "");
+        fdCreate.append("lang", lang || "");
+        fdCreate.append("referrer", referrer || "");
+
+        await fetch(appsScriptUrl, { method: "POST", body: fdCreate });
+      } catch (_) {
+        // Logging failure should not block analysis
+      }
+    }
+
+    // 2) Analyze via Gemini (single combined prompt)
+    const combinedPrompt = `
+You are a brutally honest but fair profile picture evaluator with a witty and friendly personality.
+Follow the rules strictly and respond with JSON only.
+
+1) Validation:
+- Check if the input image is a real photograph of a single person and suitable for a profile photo.
+- Consider invalid if: AI-generated, illustration/anime/character, celebrity, group photo, face severely occluded, extremely low quality, excessive filter.
+- If invalid, return ONLY:
+{
+  "isValid": false,
+  "reason": "한국어로 짧고 친절하지만 위트있는 이유"
+}
+
+2) Analysis (only if valid):
+- Analyze this image on a scale of 0 to 100 for '인물'(Figure), '배경'(Background), and '감성'(Vibe).
+- The JSON object MUST contain exactly these keys and only these keys:
+{
+  "isValid": true,
+  "figureScore": 0-100 정수,
+  "backgroundScore": 0-100 정수,
+  "vibeScore": 0-100 정수,
+  "figureCritique": "한국어로 신랄하지만 공정하고 귀엽고 친절한 톤",
+  "backgroundCritique": "한국어로 신랄하지만 공정하고 귀엽고 친절한 톤",
+  "vibeCritique": "한국어로 신랄하지만 공정하고 귀엽고 친절한 톤",
+  "finalCritique": "한국어 한 문장 위트있는 요약"
+}
+- Scores must be integers in 0~100.
+- All text must be in Korean, brutally honest yet fair, witty and friendly.
+- Output MUST be JSON only. No markdown, code fences, or extra commentary.
+    `.trim();
+
     const payload = {
       contents: [
         {
           parts: [
-            { text: prompt },
+            { text: combinedPrompt },
             {
               inlineData: {
                 mimeType: "image/jpeg",
@@ -38,16 +161,9 @@ exports.handler = async function (event) {
           ],
         },
       ],
-      // 안전 설정을 추가하여 차단 가능성을 낮춥니다.
       safetySettings: [
-        {
-          category: "HARM_CATEGORY_HARASSMENT",
-          threshold: "BLOCK_NONE",
-        },
-        {
-          category: "HARM_CATEGORY_HATE_SPEECH",
-          threshold: "BLOCK_NONE",
-        },
+        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
         {
           category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
           threshold: "BLOCK_NONE",
@@ -64,19 +180,49 @@ exports.handler = async function (event) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    const gemini = await response.json();
 
-    // Gemini API의 응답을 그대로 클라이언트에 전달합니다.
-    const result = await response.json();
+    const text = gemini?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const jsonText = (text || "").replace(/```json\n?|```/g, "").trim();
+    let analysisResult;
+    try {
+      analysisResult = JSON.parse(jsonText);
+    } catch (_) {
+      return {
+        statusCode: 502,
+        body: JSON.stringify({ error: "Invalid Gemini response", raw: gemini }),
+      };
+    }
+
+    // 3) Update (Apps Script optional) if valid
+    if (appsScriptUrl && analysisResult?.isValid) {
+      try {
+        const fdUpdate = new FormData();
+        fdUpdate.append("action", "update");
+        fdUpdate.append("requestId", requestId);
+        fdUpdate.append("figureScore", analysisResult.figureScore);
+        fdUpdate.append("backgroundScore", analysisResult.backgroundScore);
+        fdUpdate.append("vibeScore", analysisResult.vibeScore);
+        fdUpdate.append("figureCritique", analysisResult.figureCritique);
+        fdUpdate.append(
+          "backgroundCritique",
+          analysisResult.backgroundCritique
+        );
+        fdUpdate.append("vibeCritique", analysisResult.vibeCritique);
+        fdUpdate.append("finalCritique", analysisResult.finalCritique);
+
+        await fetch(appsScriptUrl, { method: "POST", body: fdUpdate });
+      } catch (_) {
+        // Do not fail the whole request if update logging fails
+      }
+    }
 
     return {
-      statusCode: response.status,
-      body: JSON.stringify(result),
+      statusCode: 200,
+      body: JSON.stringify({ ok: true, result: analysisResult }),
     };
   } catch (error) {
     console.error("Function Error:", error);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: error.message }),
-    };
+    return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
   }
 };
