@@ -5,22 +5,27 @@ AI를 활용한 프로필 사진 분석 및 평가 서비스입니다.
 ## 🚀 배포 및 설정
 
 ### 1. Netlify 환경 변수 설정
+
 Netlify 대시보드에서 다음 환경 변수를 설정해주세요:
+
 - `GEMINI_API_KEY`: Google Gemini API 키
 
 ### 2. Google Apps Script 설정 (데이터 수집용)
 
 #### 2-1. Google 스프레드시트 생성
+
 1. [Google 스프레드시트](https://sheets.google.com)에서 새 시트 생성
 2. 시트 이름을 "Sheet1"로 유지 (또는 코드에서 수정)
-3. 첫 번째 행에 헤더 추가: `타임스탬프`, `이름`, `연락처`, `이미지 URL`
+3. 첫 번째 행에 헤더 추가: `요청ID`, `타임스탬프`, `이름`, `연락처`, `이미지 URL`, `동의`, `clientId`, `visitorId`, `ip`, `ua`, `lang`, `referrer`, `상태`, `인물`, `배경`, `감성`, `인물 코멘트`, `배경 코멘트`, `감성 코멘트`, `최종 한줄평`, `업데이트시각`
 
 #### 2-2. Google Drive 폴더 생성
+
 1. [Google Drive](https://drive.google.com)에서 이미지 저장용 폴더 생성
 2. 폴더를 우클릭 → "링크 가져오기" 클릭
 3. URL에서 폴더 ID 복사 (예: `https://drive.google.com/drive/folders/1ABC123xyz` → `1ABC123xyz`)
 
 #### 2-3. Google Apps Script 설정
+
 1. 스프레드시트에서 `확장 프로그램` → `Apps Script` 클릭
 2. 기본 코드를 삭제하고 아래 코드를 붙여넣기:
 
@@ -30,44 +35,116 @@ const FOLDER_ID = "여기에_복사한_폴더_ID를_붙여넣으세요";
 
 /**
  * 웹 앱에서 POST 요청을 받아 처리하는 메인 함수입니다.
- * 받은 데이터를 구글 시트에 기록하고, 이미지를 구글 드라이브에 저장합니다.
+ * 두 단계 전송을 처리합니다.
+ *  - action=create: 개인정보/이미지 저장, 행 생성, 상태 PENDING
+ *  - action=update: 동일 요청ID 행에 점수/코멘트/최종평 업데이트, 상태 DONE
  */
 function doPost(e) {
   try {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Sheet1");
+    const sheet =
+      SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Sheet1");
     if (!sheet) {
-      throw new Error("Sheet named 'Sheet1' not found. Please check the sheet name.");
+      throw new Error(
+        "Sheet named 'Sheet1' not found. Please check the sheet name."
+      );
     }
 
-    const name = e.parameter.name;
-    const contact = e.parameter.contact;
-    const timestamp = e.parameter.timestamp;
-    const imageBase64 = e.parameter.image;
+    // 요청 파라미터
+    const p = e.parameter; // action, requestId, name, contact, timestamp, image(base64), consent, clientId, visitorId, ip, ua, lang, referrer, figureScore, backgroundScore, vibeScore, figureCritique, backgroundCritique, vibeCritique, finalCritique
+    const action = p.action || "create";
+    const name = p.name;
+    const contact = p.contact;
+    const timestamp = p.timestamp;
+    const imageBase64 = p.image;
+    const consent = p.consent || "N";
+    // AI 분석 점수/코멘트 (프론트에서 함께 전송)
+    const figureScore = p.figureScore || "";
+    const backgroundScore = p.backgroundScore || "";
+    const vibeScore = p.vibeScore || "";
+    const figureCritique = p.figureCritique || "";
+    const backgroundCritique = p.backgroundCritique || "";
+    const vibeCritique = p.vibeCritique || "";
 
-    // --- Google Drive에 이미지 저장 ---
-    // Base64 데이터에서 순수 데이터 부분만 추출하고 디코딩합니다.
-    const decodedImage = Utilities.base64Decode(imageBase64.split(",")[1]);
-    const imageBlob = Utilities.newBlob(decodedImage, "image/jpeg", `${name}_${timestamp}.jpg`);
-    
-    // 지정된 ID의 폴더를 찾습니다.
-    const imageFolder = DriveApp.getFolderById(FOLDER_ID);
-    
-    // 폴더 안에 이미지 파일을 생성합니다.
-    const imageFile = imageFolder.createFile(imageBlob);
-    const imageUrl = imageFile.getUrl(); // 저장된 파일의 URL을 가져옵니다.
+    // create: 개인정보만 먼저 기록
+    if (action === "create") {
+      const decodedImage = Utilities.base64Decode(imageBase64.split(",")[1]);
+      const imageBlob = Utilities.newBlob(
+        decodedImage,
+        "image/jpeg",
+        `${name}_${timestamp}.jpg`
+      );
+      const imageFolder = DriveApp.getFolderById(FOLDER_ID);
+      const imageFile = imageFolder.createFile(imageBlob);
+      const imageUrl = imageFile.getUrl();
 
-    // --- Google Sheet에 정보 기록 ---
-    // 시트에는 이름, 연락처, 그리고 이미지 파일의 '링크'를 저장합니다.
-    sheet.appendRow([timestamp, name, contact, imageUrl]);
+      const headers = sheet
+        .getRange(1, 1, 1, sheet.getLastColumn())
+        .getValues()[0];
+      const rowMap = {
+        요청ID: p.requestId,
+        타임스탬프: timestamp,
+        이름: name,
+        연락처: contact,
+        "이미지 URL": imageUrl,
+        동의: consent,
+        clientId: p.clientId,
+        visitorId: p.visitorId,
+        ip: p.ip,
+        ua: p.ua,
+        lang: p.lang,
+        referrer: p.referrer,
+        상태: "PENDING",
+        업데이트시각: new Date().toLocaleString("ko-KR"),
+      };
+      const row = headers.map((h) => rowMap[h] ?? "");
+      sheet.appendRow(row);
 
-    // 성공 응답을 JSON 형태로 반환합니다.
-    return ContentService.createTextOutput(JSON.stringify({ "result": "success", "fileUrl": imageUrl }))
-      .setMimeType(ContentService.MimeType.JSON);
+      return ContentService.createTextOutput(
+        JSON.stringify({ ok: true, requestId: p.requestId, fileUrl: imageUrl })
+      ).setMimeType(ContentService.MimeType.JSON);
+    }
 
+    // update: 동일 요청ID 행 업데이트
+    if (action === "update") {
+      const headers = sheet
+        .getRange(1, 1, 1, sheet.getLastColumn())
+        .getValues()[0];
+      const idCol = headers.indexOf("요청ID") + 1;
+      if (idCol < 1) throw new Error("요청ID 헤더를 찾을 수 없습니다.");
+
+      const lastRow = sheet.getLastRow();
+      const ids = sheet
+        .getRange(2, idCol, Math.max(lastRow - 1, 0), 1)
+        .getValues()
+        .flat();
+      const idx = ids.indexOf(p.requestId);
+      if (idx < 0) throw new Error("요청ID에 해당하는 행이 없습니다.");
+      const row = idx + 2;
+
+      const setCell = (header, value) => {
+        const c = headers.indexOf(header) + 1;
+        if (c > 0) sheet.getRange(row, c).setValue(value);
+      };
+      setCell("인물", p.figureScore);
+      setCell("배경", p.backgroundScore);
+      setCell("감성", p.vibeScore);
+      setCell("인물 코멘트", p.figureCritique);
+      setCell("배경 코멘트", p.backgroundCritique);
+      setCell("감성 코멘트", p.vibeCritique);
+      setCell("최종 한줄평", p.finalCritique);
+      setCell("상태", "DONE");
+      setCell("업데이트시각", new Date().toLocaleString("ko-KR"));
+
+      return ContentService.createTextOutput(
+        JSON.stringify({ ok: true })
+      ).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    throw new Error("Unknown action");
   } catch (error) {
-    // 오류 발생 시, 오류 메시지를 JSON 형태로 반환합니다.
-    return ContentService.createTextOutput(JSON.stringify({ "result": "error", "message": error.message }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(
+      JSON.stringify({ result: "error", message: error.message })
+    ).setMimeType(ContentService.MimeType.JSON);
   }
 }
 
@@ -80,12 +157,16 @@ function forceDrivePermission() {
     DriveApp.getFolderById(FOLDER_ID);
     Logger.log("Google Drive permission is already granted.");
   } catch (e) {
-    Logger.log("Requesting Google Drive permission. Please follow the prompts. Error: " + e.message);
+    Logger.log(
+      "Requesting Google Drive permission. Please follow the prompts. Error: " +
+        e.message
+    );
   }
 }
 ```
 
 #### 2-4. 권한 설정 및 배포
+
 1. `forceDrivePermission` 함수를 한 번 실행하여 Drive 권한 허용
 2. `배포` → `새 배포` 클릭
 3. 유형: `웹 앱` 선택
@@ -94,6 +175,7 @@ function forceDrivePermission() {
 6. 배포 후 생성된 웹 앱 URL을 복사
 
 #### 2-5. 프론트엔드 코드 업데이트
+
 `index.html` 파일의 `scriptURL` 변수를 새로 생성한 웹 앱 URL로 변경:
 
 ```javascript
@@ -101,6 +183,7 @@ const scriptURL = "여기에_새로_생성한_웹앱_URL_붙여넣기";
 ```
 
 ## 📁 프로젝트 구조
+
 ```
 AI-faceshot-analyzer/
 ├── index.html                 # 메인 웹 페이지
@@ -112,6 +195,7 @@ AI-faceshot-analyzer/
 ```
 
 ## 🔧 주요 기능
+
 - 📸 이미지 업로드 및 미리보기
 - 🤖 Gemini AI를 통한 프로필 사진 분석
 - 📊 인물, 배경, 감성 점수 제공
@@ -119,8 +203,35 @@ AI-faceshot-analyzer/
 - 📱 반응형 웹 디자인
 
 ## 🛠️ 기술 스택
+
 - **Frontend**: HTML, CSS (Tailwind), JavaScript
 - **Backend**: Netlify Functions
 - **AI**: Google Gemini API
 - **Storage**: Google Sheets + Google Drive
 - **Hosting**: Netlify
+
+## 💡 Apps Script 연동 방식의 특징
+
+이 프로젝트의 Google Apps Script는 유지보수 편의성을 높이기 위해 독특한 방식으로 설계되었습니다.
+
+**헤더 이름을 기반으로 한 동적 데이터 처리**
+일반적으로 스크립트에서 시트 데이터를 처리할 때는 A열, B열처럼 열의 위치를 직접 지정하는 방식을 사용하기도 합니다. 하지만 이 방식은 시트의 열 순서가 바뀌면 스크립트가 오작동하는 치명적인 단점이 있습니다.
+
+이 프로젝트는 이러한 문제를 해결하기 위해 다음과 같은 동적 처리 방식을 사용합니다.
+
+1. **헤더 읽기**: 스크립트는 실행될 때마다 항상 시트의 첫 행(헤더)을 먼저 읽어 각 열의 이름과 위치를 파악합니다. (["요청ID", "타임스탬프", ...])
+
+2. **이름으로 매칭**: 데이터를 저장하거나 업데이트할 때, 헤더 이름을 기준으로 정확한 열을 찾아냅니다.
+
+3. **create (생성 시)**: headers.map()을 사용하여 시트의 헤더 순서와 동일한 순서로 데이터를 재정렬한 후 행을 추가합니다.
+
+4. **update (수정 시)**: headers.indexOf("헤더이름")을 사용하여 수정할 열의 위치를 동적으로 찾아낸 후 값을 업데이트합니다.
+
+**장점**
+이러한 설계 덕분에 프론트엔드 개발과 데이터 관리(시트)가 분리되어 유지보수가 매우 편리합니다.
+
+1. **유연성**: 구글 시트에서 열의 순서를 마음대로 변경해도 스크립트 코드를 수정할 필요가 없습니다. (예: '연락처' 열과 '이름' 열의 순서를 바꿔도 정상 작동)
+
+2. **가독성**: 코드에서 getRange(row, 5)처럼 의미를 알 수 없는 숫자 대신 setCell("인물", ...)과 같이 명시적인 헤더 이름을 사용하므로, 코드의 의도를 파악하기 쉽습니다.
+
+3. **확장성**: 나중에 새로운 데이터(열)를 추가하고 싶을 때, 시트에 헤더를 추가하고 스크립트의 rowMap 객체에 한 줄만 추가하면 되므로 확장이 매우 용이합니다.
