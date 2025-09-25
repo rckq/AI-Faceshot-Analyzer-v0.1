@@ -172,42 +172,38 @@ Follow the rules strictly and respond with JSON only.
       // Promise.resolve()를 사용하여 응답 후 백그라운드에서 실행
       Promise.resolve().then(async () => {
         try {
-          const fdComplete = new FormData();
-          fdComplete.append("action", "complete"); // create + update를 한 번에 처리
-          fdComplete.append("requestId", requestId);
-          fdComplete.append("name", name);
-          fdComplete.append("contact", contact);
-          fdComplete.append(
-            "timestamp",
-            timestamp || new Date().toLocaleString("ko-KR")
-          );
-          fdComplete.append("image", imageBase64);
-          fdComplete.append("consent", consent ? "Y" : "N");
-          fdComplete.append("clientId", clientId || "");
-          fdComplete.append("visitorId", visitorId || "");
-          fdComplete.append("ip", ip || "");
-          fdComplete.append("ua", ua || "");
-          fdComplete.append("lang", lang || "");
-          fdComplete.append("referrer", referrer || "");
+          // FormData 대신 JSON으로 통신 (HTTP/2 PROTOCOL_ERROR 회피)
+          const payload = {
+            action: "complete",
+            requestId,
+            name,
+            contact,
+            timestamp: timestamp || new Date().toLocaleString("ko-KR"),
+            image: imageBase64,
+            consent: consent ? "Y" : "N",
+            clientId: clientId || "",
+            visitorId: visitorId || "",
+            ip: ip || "",
+            ua: ua || "",
+            lang: lang || "",
+            referrer: referrer || "",
+          };
 
-          // 분석 결과도 함께 저장 (유효한 경우만)
           if (analysisResult?.isValid) {
-            fdComplete.append("figureScore", analysisResult.figureScore);
-            fdComplete.append(
-              "backgroundScore",
-              analysisResult.backgroundScore
-            );
-            fdComplete.append("vibeScore", analysisResult.vibeScore);
-            fdComplete.append("figureCritique", analysisResult.figureCritique);
-            fdComplete.append(
-              "backgroundCritique",
-              analysisResult.backgroundCritique
-            );
-            fdComplete.append("vibeCritique", analysisResult.vibeCritique);
-            fdComplete.append("finalCritique", analysisResult.finalCritique);
+            payload.figureScore = analysisResult.figureScore;
+            payload.backgroundScore = analysisResult.backgroundScore;
+            payload.vibeScore = analysisResult.vibeScore;
+            payload.figureCritique = analysisResult.figureCritique;
+            payload.backgroundCritique = analysisResult.backgroundCritique;
+            payload.vibeCritique = analysisResult.vibeCritique;
+            payload.finalCritique = analysisResult.finalCritique;
           }
 
-          await fetch(appsScriptUrl, { method: "POST", body: fdComplete });
+          await fetch(appsScriptUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
         } catch (error) {
           console.error("Background sheet logging failed:", error);
           // 백그라운드 실패는 로그만 남기고 무시
