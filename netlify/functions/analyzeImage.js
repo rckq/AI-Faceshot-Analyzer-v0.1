@@ -88,34 +88,7 @@ exports.handler = async function (event) {
       };
     }
 
-    // 1) Create (Apps Script optional)
-    if (appsScriptUrl) {
-      try {
-        const fdCreate = new FormData();
-        fdCreate.append("action", "create");
-        fdCreate.append("requestId", requestId);
-        fdCreate.append("name", name);
-        fdCreate.append("contact", contact);
-        fdCreate.append(
-          "timestamp",
-          timestamp || new Date().toLocaleString("ko-KR")
-        );
-        fdCreate.append("image", imageBase64);
-        fdCreate.append("consent", consent ? "Y" : "N");
-        fdCreate.append("clientId", clientId || "");
-        fdCreate.append("visitorId", visitorId || "");
-        fdCreate.append("ip", ip || "");
-        fdCreate.append("ua", ua || "");
-        fdCreate.append("lang", lang || "");
-        fdCreate.append("referrer", referrer || "");
-
-        await fetch(appsScriptUrl, { method: "POST", body: fdCreate });
-      } catch (_) {
-        // Logging failure should not block analysis
-      }
-    }
-
-    // 2) Analyze via Gemini (single combined prompt)
+    // 1) Analyze via Gemini (우선 실행 - 사용자 대기시간 최소화)
     const combinedPrompt = `
 You are a brutally honest but fair profile picture evaluator with a witty and friendly personality.
 Follow the rules strictly and respond with JSON only.
@@ -194,27 +167,52 @@ Follow the rules strictly and respond with JSON only.
       };
     }
 
-    // 3) Update (Apps Script optional) if valid
-    if (appsScriptUrl && analysisResult?.isValid) {
-      try {
-        const fdUpdate = new FormData();
-        fdUpdate.append("action", "update");
-        fdUpdate.append("requestId", requestId);
-        fdUpdate.append("figureScore", analysisResult.figureScore);
-        fdUpdate.append("backgroundScore", analysisResult.backgroundScore);
-        fdUpdate.append("vibeScore", analysisResult.vibeScore);
-        fdUpdate.append("figureCritique", analysisResult.figureCritique);
-        fdUpdate.append(
-          "backgroundCritique",
-          analysisResult.backgroundCritique
-        );
-        fdUpdate.append("vibeCritique", analysisResult.vibeCritique);
-        fdUpdate.append("finalCritique", analysisResult.finalCritique);
+    // 2) 백그라운드에서 시트 저장 (응답 후 비동기 처리)
+    if (appsScriptUrl) {
+      // Promise.resolve()를 사용하여 응답 후 백그라운드에서 실행
+      Promise.resolve().then(async () => {
+        try {
+          const fdComplete = new FormData();
+          fdComplete.append("action", "complete"); // create + update를 한 번에 처리
+          fdComplete.append("requestId", requestId);
+          fdComplete.append("name", name);
+          fdComplete.append("contact", contact);
+          fdComplete.append(
+            "timestamp",
+            timestamp || new Date().toLocaleString("ko-KR")
+          );
+          fdComplete.append("image", imageBase64);
+          fdComplete.append("consent", consent ? "Y" : "N");
+          fdComplete.append("clientId", clientId || "");
+          fdComplete.append("visitorId", visitorId || "");
+          fdComplete.append("ip", ip || "");
+          fdComplete.append("ua", ua || "");
+          fdComplete.append("lang", lang || "");
+          fdComplete.append("referrer", referrer || "");
 
-        await fetch(appsScriptUrl, { method: "POST", body: fdUpdate });
-      } catch (_) {
-        // Do not fail the whole request if update logging fails
-      }
+          // 분석 결과도 함께 저장 (유효한 경우만)
+          if (analysisResult?.isValid) {
+            fdComplete.append("figureScore", analysisResult.figureScore);
+            fdComplete.append(
+              "backgroundScore",
+              analysisResult.backgroundScore
+            );
+            fdComplete.append("vibeScore", analysisResult.vibeScore);
+            fdComplete.append("figureCritique", analysisResult.figureCritique);
+            fdComplete.append(
+              "backgroundCritique",
+              analysisResult.backgroundCritique
+            );
+            fdComplete.append("vibeCritique", analysisResult.vibeCritique);
+            fdComplete.append("finalCritique", analysisResult.finalCritique);
+          }
+
+          await fetch(appsScriptUrl, { method: "POST", body: fdComplete });
+        } catch (error) {
+          console.error("Background sheet logging failed:", error);
+          // 백그라운드 실패는 로그만 남기고 무시
+        }
+      });
     }
 
     return {
