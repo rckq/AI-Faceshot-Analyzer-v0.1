@@ -9,6 +9,7 @@ AI를 활용한 프로필 사진 분석 및 평가 서비스입니다.
 Netlify 대시보드에서 다음 환경 변수를 설정해주세요:
 
 - `GEMINI_API_KEY`: Google Gemini API 키
+- `APPS_SCRIPT_URL`: Google Apps Script 웹앱 URL (`.../exec`)
 
 ### 2. Google Apps Script 설정 (데이터 수집용)
 
@@ -37,25 +38,33 @@ const FOLDER_ID = "여기에_복사한_폴더_ID를_붙여넣으세요";
  * 웹 앱에서 POST 요청을 받아 처리하는 메인 함수입니다.
  * 세 가지 액션을 처리합니다:
  *  - action=create: 개인정보/이미지만 저장 (기존 방식)
- *  - action=update: 분석 결과만 업데이트 (기존 방식)  
+ *  - action=update: 분석 결과만 업데이트 (기존 방식)
  *  - action=complete: 개인정보 + 분석결과를 한 번에 저장 (최적화된 방식)
  */
 function doPost(e) {
   try {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Sheet1");
+    const sheet =
+      SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Sheet1");
     if (!sheet) {
-      throw new Error("Sheet named 'Sheet1' not found. Please check the sheet name.");
+      throw new Error(
+        "Sheet named 'Sheet1' not found. Please check the sheet name."
+      );
     }
 
-    // 요청 파라미터
-    const p = e.parameter;
+    // 요청 파라미터 (JSON 우선, 실패 시 폼 파라미터 폴백)
+    let p;
+    try {
+      p = JSON.parse((e.postData && e.postData.contents) || "{}");
+    } catch (_) {
+      p = e.parameter || {};
+    }
     const action = p.action || "create";
     const name = p.name;
     const contact = p.contact;
     const timestamp = p.timestamp;
     const imageBase64 = p.image;
     const consent = p.consent || "N";
-    
+
     // AI 분석 점수/코멘트
     const figureScore = p.figureScore || "";
     const backgroundScore = p.backgroundScore || "";
@@ -79,42 +88,44 @@ function doPost(e) {
       const imageUrl = imageFile.getUrl();
 
       // 시트 헤더 가져오기
-      const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-      
+      const headers = sheet
+        .getRange(1, 1, 1, sheet.getLastColumn())
+        .getValues()[0];
+
       // 모든 데이터를 한 번에 저장
       const rowMap = {
-        "요청ID": p.requestId,
-        "타임스탬프": timestamp,
-        "이름": name,
-        "연락처": contact,
+        요청ID: p.requestId,
+        타임스탬프: timestamp,
+        이름: name,
+        연락처: contact,
         "이미지 URL": imageUrl,
         "최종 한줄평": finalCritique,
-        "인물": figureScore,
-        "배경": backgroundScore,
-        "감성": vibeScore,
+        인물: figureScore,
+        배경: backgroundScore,
+        감성: vibeScore,
         "인물 코멘트": figureCritique,
         "배경 코멘트": backgroundCritique,
         "감성 코멘트": vibeCritique,
-        "visitorId": p.visitorId || "",
-        "clientId": p.clientId || "",
-        "ip": p.ip || "",
-        "ua": p.ua || "",
-        "lang": p.lang || "",
-        "referrer": p.referrer || "",
-        "동의": consent,
-        "상태": figureScore ? "DONE" : "PENDING", // 분석결과가 있으면 DONE
-        "업데이트시각": new Date().toLocaleString("ko-KR")
+        visitorId: p.visitorId || "",
+        clientId: p.clientId || "",
+        ip: p.ip || "",
+        ua: p.ua || "",
+        lang: p.lang || "",
+        referrer: p.referrer || "",
+        동의: consent,
+        상태: figureScore ? "DONE" : "PENDING", // 분석결과가 있으면 DONE
+        업데이트시각: new Date().toLocaleString("ko-KR"),
       };
-      
-      const row = headers.map(h => rowMap[h] ?? "");
+
+      const row = headers.map((h) => rowMap[h] ?? "");
       sheet.appendRow(row);
 
       return ContentService.createTextOutput(
-        JSON.stringify({ 
-          ok: true, 
-          requestId: p.requestId, 
+        JSON.stringify({
+          ok: true,
+          requestId: p.requestId,
           fileUrl: imageUrl,
-          action: "complete"
+          action: "complete",
         })
       ).setMimeType(ContentService.MimeType.JSON);
     }
@@ -131,24 +142,26 @@ function doPost(e) {
       const imageFile = imageFolder.createFile(imageBlob);
       const imageUrl = imageFile.getUrl();
 
-      const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+      const headers = sheet
+        .getRange(1, 1, 1, sheet.getLastColumn())
+        .getValues()[0];
       const rowMap = {
-        "요청ID": p.requestId,
-        "타임스탬프": timestamp,
-        "이름": name,
-        "연락처": contact,
+        요청ID: p.requestId,
+        타임스탬프: timestamp,
+        이름: name,
+        연락처: contact,
         "이미지 URL": imageUrl,
-        "clientId": p.clientId,
-        "visitorId": p.visitorId,
-        "ip": p.ip,
-        "ua": p.ua,
-        "lang": p.lang,
-        "referrer": p.referrer,
-        "상태": "PENDING",
-        "동의": consent,
-        "업데이트시각": new Date().toLocaleString("ko-KR")
+        clientId: p.clientId,
+        visitorId: p.visitorId,
+        ip: p.ip,
+        ua: p.ua,
+        lang: p.lang,
+        referrer: p.referrer,
+        상태: "PENDING",
+        동의: consent,
+        업데이트시각: new Date().toLocaleString("ko-KR"),
       };
-      const row = headers.map(h => rowMap[h] ?? "");
+      const row = headers.map((h) => rowMap[h] ?? "");
       sheet.appendRow(row);
 
       return ContentService.createTextOutput(
@@ -158,12 +171,17 @@ function doPost(e) {
 
     // update: 동일 요청ID 행 업데이트 (기존 방식 유지)
     if (action === "update") {
-      const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+      const headers = sheet
+        .getRange(1, 1, 1, sheet.getLastColumn())
+        .getValues()[0];
       const idCol = headers.indexOf("요청ID") + 1;
       if (idCol < 1) throw new Error("요청ID 헤더를 찾을 수 없습니다.");
 
       const lastRow = sheet.getLastRow();
-      const ids = sheet.getRange(2, idCol, Math.max(lastRow - 1, 0), 1).getValues().flat();
+      const ids = sheet
+        .getRange(2, idCol, Math.max(lastRow - 1, 0), 1)
+        .getValues()
+        .flat();
       const idx = ids.indexOf(p.requestId);
       if (idx < 0) throw new Error("요청ID에 해당하는 행이 없습니다.");
       const row = idx + 2;
@@ -172,7 +190,7 @@ function doPost(e) {
         const c = headers.indexOf(header) + 1;
         if (c > 0) sheet.getRange(row, c).setValue(value);
       };
-      
+
       setCell("인물", figureScore);
       setCell("배경", backgroundScore);
       setCell("감성", vibeScore);
@@ -206,7 +224,10 @@ function forceDrivePermission() {
     DriveApp.getFolderById(FOLDER_ID);
     Logger.log("Google Drive permission is already granted.");
   } catch (e) {
-    Logger.log("Requesting Google Drive permission. Please follow the prompts. Error: " + e.message);
+    Logger.log(
+      "Requesting Google Drive permission. Please follow the prompts. Error: " +
+        e.message
+    );
   }
 }
 ```
@@ -220,13 +241,11 @@ function forceDrivePermission() {
 5. 액세스 권한: `모든 사용자` 선택
 6. 배포 후 생성된 웹 앱 URL을 복사
 
-#### 2-5. 프론트엔드 코드 업데이트
+#### 2-5. Netlify에 Apps Script URL 등록
 
-`index.html` 파일의 `scriptURL` 변수를 새로 생성한 웹 앱 URL로 변경:
-
-```javascript
-const scriptURL = "여기에_새로_생성한_웹앱_URL_붙여넣기";
-```
+1. Netlify Dashboard → Site settings → Environment variables
+2. `APPS_SCRIPT_URL` 변수로 위에서 복사한 웹앱 URL(`.../exec`) 등록
+3. 배포 후 서버 함수가 JSON으로 Apps Script에 기록을 전송합니다 (프론트에서 직접 호출하지 않음)
 
 ## 📁 프로젝트 구조
 
