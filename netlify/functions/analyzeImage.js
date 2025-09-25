@@ -167,64 +167,47 @@ Follow the rules strictly and respond with JSON only.
       };
     }
 
-    // 2) 시트 저장 (응답 전에 동기 처리하여 로그 확실히 남김)
-    if (appsScriptUrl) {
-      console.log("Apps Script URL found:", appsScriptUrl);
-      try {
-        // FormData 대신 JSON으로 통신 (HTTP/2 PROTOCOL_ERROR 회피)
-        const payload = {
-          action: "complete",
-          requestId,
-          name,
-          contact,
-          timestamp: timestamp || new Date().toLocaleString("ko-KR"),
-          image: imageBase64,
-          consent: consent ? "Y" : "N",
-          clientId: clientId || "",
-          visitorId: visitorId || "",
-          ip: ip || "",
-          ua: ua || "",
-          lang: lang || "",
-          referrer: referrer || "",
-        };
+    // 2) 시트 저장 (방법 B: 백그라운드 함수 호출로 비동기 처리)
+    try {
+      const bgPayload = {
+        action: "complete",
+        requestId,
+        name,
+        contact,
+        timestamp: timestamp || new Date().toLocaleString("ko-KR"),
+        image: imageBase64,
+        consent: consent ? "Y" : "N",
+        clientId: clientId || "",
+        visitorId: visitorId || "",
+        ip: ip || "",
+        ua: ua || "",
+        lang: lang || "",
+        referrer: referrer || "",
+      };
 
-        if (analysisResult?.isValid) {
-          payload.figureScore = analysisResult.figureScore;
-          payload.backgroundScore = analysisResult.backgroundScore;
-          payload.vibeScore = analysisResult.vibeScore;
-          payload.figureCritique = analysisResult.figureCritique;
-          payload.backgroundCritique = analysisResult.backgroundCritique;
-          payload.vibeCritique = analysisResult.vibeCritique;
-          payload.finalCritique = analysisResult.finalCritique;
-        }
-
-        console.log(
-          "Sending to Apps Script:",
-          JSON.stringify(payload, null, 2)
-        );
-
-        const sheetResponse = await fetch(appsScriptUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        const sheetResult = await sheetResponse.text();
-        console.log("Apps Script response status:", sheetResponse.status);
-        console.log("Apps Script response:", sheetResult);
-
-        if (!sheetResponse.ok) {
-          console.error(
-            "Apps Script request failed:",
-            sheetResponse.status,
-            sheetResult
-          );
-        }
-      } catch (error) {
-        console.error("Sheet logging failed:", error);
+      if (analysisResult?.isValid) {
+        bgPayload.figureScore = analysisResult.figureScore;
+        bgPayload.backgroundScore = analysisResult.backgroundScore;
+        bgPayload.vibeScore = analysisResult.vibeScore;
+        bgPayload.figureCritique = analysisResult.figureCritique;
+        bgPayload.backgroundCritique = analysisResult.backgroundCritique;
+        bgPayload.vibeCritique = analysisResult.vibeCritique;
+        bgPayload.finalCritique = analysisResult.finalCritique;
       }
-    } else {
-      console.log("No Apps Script URL configured - skipping sheet logging");
+
+      console.log(
+        "Queue background logging with payload:",
+        JSON.stringify(bgPayload, null, 2)
+      );
+
+      // Netlify Functions: 로컬/프록시 환경과 배포 환경 모두에서 동작하도록 경로 사용
+      await fetch("/.netlify/functions/logToAppsScript-background", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bgPayload),
+      });
+    } catch (e) {
+      console.error("Failed to enqueue background logging:", e);
     }
 
     return {
