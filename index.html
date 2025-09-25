@@ -484,6 +484,22 @@
           .catch(() => {});
       }
 
+      // 최초 유입 referrer 보존 (브라우저 정책/직접 방문으로 비어질 수 있으므로 보조 신호로 저장)
+      try {
+        if (!localStorage.getItem("firstReferrer") && document.referrer) {
+          localStorage.setItem("firstReferrer", document.referrer);
+        }
+      } catch (_) {}
+
+      // visitorId 준비를 잠시 대기 (FingerprintJS가 비동기여서 초기 제출 시 누락 방지)
+      async function waitForVisitorId(timeoutMs = 800) {
+        const start = Date.now();
+        while (!window.__visitorId && Date.now() - start < timeoutMs) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        return window.__visitorId || "";
+      }
+
       window.__clientIp = "";
       fetch("https://api.ipify.org?format=json")
         .then((r) => r.json())
@@ -613,6 +629,13 @@
         switchView("loading-section");
         // 서버로 단일 요청 (create + analyze + update)
         try {
+          // 제출 직전 잠시 visitorId 대기
+          await waitForVisitorId(800);
+          let persistedReferrer = "";
+          try {
+            persistedReferrer = localStorage.getItem("firstReferrer") || "";
+          } catch (_) {}
+
           const payload = {
             mode: "full",
             requestId,
@@ -626,7 +649,7 @@
             ip: window.__clientIp || "",
             ua: window.__ua || "",
             lang: window.__lang || "",
-            referrer: window.__referrer || "",
+            referrer: window.__referrer || persistedReferrer || "",
           };
 
           const res = await fetch("/.netlify/functions/analyzeImage", {
