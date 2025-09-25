@@ -1,56 +1,73 @@
 exports.handler = async function (event) {
-\ttry {
-\t\tconst appsScriptUrl = process.env.APPS_SCRIPT_URL;
-\t\tif (!appsScriptUrl) {
-\t\t\tconsole.log("APPS_SCRIPT_URL is not configured. Skipping Apps Script logging.");
-\t\t\treturn { statusCode: 200, body: JSON.stringify({ ok: false, reason: "APPS_SCRIPT_URL not set" }) };
-\t\t}
+  try {
+    const appsScriptUrl = process.env.APPS_SCRIPT_URL;
+    if (!appsScriptUrl) {
+      console.log(
+        "APPS_SCRIPT_URL is not configured. Skipping Apps Script logging."
+      );
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ ok: false, reason: "APPS_SCRIPT_URL not set" }),
+      };
+    }
 
-\t\tconst incoming = JSON.parse(event.body || "{}");
-\t\tconst sheetPayload = {
-\t\t\taction: incoming.action || "complete",
-\t\t\trequestId: incoming.requestId || "",
-\t\t\tname: incoming.name || "",
-\t\t\tcontact: incoming.contact || "",
-\t\t\ttimestamp: incoming.timestamp || new Date().toLocaleString("ko-KR"),
-\t\t\timage: incoming.image || incoming.imageBase64 || "",
-\t\t\tconsent: incoming.consent ? "Y" : incoming.consent === "N" ? "N" : (incoming.consent || "N"),
-\t\t\tclientId: incoming.clientId || "",
-\t\t\tvisitorId: incoming.visitorId || "",
-\t\t\tip: incoming.ip || "",
-\t\t\tua: incoming.ua || "",
-\t\t\tlang: incoming.lang || "",
-\t\t\treferrer: incoming.referrer || "",
-\t\t\tfigureScore: incoming.figureScore,
-\t\t\tbackgroundScore: incoming.backgroundScore,
-\t\t\tvibeScore: incoming.vibeScore,
-\t\t\tfigureCritique: incoming.figureCritique,
-\t\t\tbackgroundCritique: incoming.backgroundCritique,
-\t\t\tvibeCritique: incoming.vibeCritique,
-\t\t\tfinalCritique: incoming.finalCritique,
-\t\t};
+    const incoming = JSON.parse(event.body || "{}");
+    const sheetPayload = {
+      action: incoming.action || "complete",
+      requestId: incoming.requestId || "",
+      name: incoming.name || "",
+      contact: incoming.contact || "",
+      timestamp: incoming.timestamp || new Date().toLocaleString("ko-KR"),
+      image: incoming.image || incoming.imageBase64 || "",
+      consent: incoming.consent
+        ? "Y"
+        : incoming.consent === "N"
+        ? "N"
+        : incoming.consent || "N",
+      clientId: incoming.clientId || "",
+      visitorId: incoming.visitorId || "",
+      ip: incoming.ip || "",
+      ua: incoming.ua || "",
+      lang: incoming.lang || "",
+      referrer: incoming.referrer || "",
+      figureScore: incoming.figureScore,
+      backgroundScore: incoming.backgroundScore,
+      vibeScore: incoming.vibeScore,
+      figureCritique: incoming.figureCritique,
+      backgroundCritique: incoming.backgroundCritique,
+      vibeCritique: incoming.vibeCritique,
+      finalCritique: incoming.finalCritique,
+    };
 
-\t\tconsole.log("[BG] Sending to Apps Script:", JSON.stringify(sheetPayload, null, 2));
+    console.log(
+      "[BG] Sending to Apps Script:",
+      JSON.stringify(sheetPayload, null, 2)
+    );
 
-\t\tconst sheetResponse = await fetch(appsScriptUrl, {
-\t\t\tmethod: "POST",
-\t\t\theaders: { "Content-Type": "application/json" },
-\t\t\tbody: JSON.stringify(sheetPayload),
-\t\t});
+    const sheetResponse = await fetch(appsScriptUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(sheetPayload),
+    });
 
-\t\tconst sheetResult = await sheetResponse.text();
-\t\tconsole.log("[BG] Apps Script response status:", sheetResponse.status);
-\t\tconsole.log("[BG] Apps Script response:", sheetResult);
+    const sheetResult = await sheetResponse.text();
+    console.log("[BG] Apps Script response status:", sheetResponse.status);
+    console.log("[BG] Apps Script response:", sheetResult);
 
-\t\tif (!sheetResponse.ok) {
-\t\t\tconsole.error("[BG] Apps Script request failed:", sheetResponse.status, sheetResult);
-\t\t}
+    if (!sheetResponse.ok) {
+      console.error(
+        "[BG] Apps Script request failed:",
+        sheetResponse.status,
+        sheetResult
+      );
+    }
 
-\t\treturn { statusCode: 200, body: JSON.stringify({ ok: true }) };
-\t} catch (error) {
-\t\tconsole.error("[BG] Sheet logging failed:", error);
-\t\treturn { statusCode: 500, body: JSON.stringify({ ok: false, error: error.message }) };
-\t}
+    return { statusCode: 200, body: JSON.stringify({ ok: true }) };
+  } catch (error) {
+    console.error("[BG] Sheet logging failed:", error);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ ok: false, error: error.message }),
+    };
+  }
 };
-
-

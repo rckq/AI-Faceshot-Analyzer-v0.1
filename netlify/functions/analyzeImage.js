@@ -200,8 +200,13 @@ Follow the rules strictly and respond with JSON only.
         JSON.stringify(bgPayload, null, 2)
       );
 
-      // Netlify Functions: 로컬/프록시 환경과 배포 환경 모두에서 동작하도록 경로 사용
-      await fetch("/.netlify/functions/logToAppsScript-background", {
+      // Netlify Functions: Node 환경의 fetch는 절대 URL이 필요합니다.
+      // 배포 환경: process.env.URL 사용. 로컬 개발: http://localhost:8888 기본값.
+      const siteUrl =
+        process.env.URL || process.env.DEPLOY_URL || "http://localhost:8888";
+      const bgUrl = `${siteUrl}/.netlify/functions/logToAppsScript-background`;
+
+      await fetch(bgUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(bgPayload),
