@@ -43,27 +43,43 @@ const FOLDER_ID = "여기에_복사한_폴더_ID를_붙여넣으세요";
  */
 function doPost(e) {
   try {
-    const sheet =
-      SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Sheet1");
+    // 디버깅을 위한 로그
+    console.log("Received request:", JSON.stringify(e, null, 2));
+    
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Sheet1");
     if (!sheet) {
-      throw new Error(
-        "Sheet named 'Sheet1' not found. Please check the sheet name."
-      );
+      throw new Error("Sheet named 'Sheet1' not found. Please check the sheet name.");
     }
 
-    // 요청 파라미터 (JSON 우선, 실패 시 폼 파라미터 폴백)
+    // 요청 파라미터 (JSON 우선, 실패 시 폴백)
     let p;
     try {
-      p = JSON.parse((e.postData && e.postData.contents) || "{}");
-    } catch (_) {
+      const postData = e.postData && e.postData.contents;
+      if (postData) {
+        p = JSON.parse(postData);
+      } else {
+        p = e.parameter || {};
+      }
+    } catch (parseError) {
+      console.error("JSON parsing failed:", parseError);
       p = e.parameter || {};
     }
+    
+    console.log("Parsed parameters:", JSON.stringify(p, null, 2));
+    
     const action = p.action || "create";
     const name = p.name;
     const contact = p.contact;
     const timestamp = p.timestamp;
-    const imageBase64 = p.image;
+    const imageBase64 = p.image; // Netlify에서 'image' 키로 전송
     const consent = p.consent || "N";
+
+    // 필수 파라미터 검증
+    if (action === "complete" || action === "create") {
+      if (!name || !contact || !imageBase64) {
+        throw new Error(`Missing required fields: name=${!!name}, contact=${!!contact}, image=${!!imageBase64}`);
+      }
+    }
 
     // AI 분석 점수/코멘트
     const figureScore = p.figureScore || "";
@@ -76,62 +92,82 @@ function doPost(e) {
 
     // 🆕 complete: 개인정보 + 분석결과를 한 번에 저장 (최적화된 방식)
     if (action === "complete") {
-      // 이미지를 구글 드라이브에 저장
-      const decodedImage = Utilities.base64Decode(imageBase64.split(",")[1]);
-      const imageBlob = Utilities.newBlob(
-        decodedImage,
-        "image/jpeg",
-        `${name}_${timestamp.replace(/[:/\s]/g, "_")}.jpg`
-      );
-      const imageFolder = DriveApp.getFolderById(FOLDER_ID);
-      const imageFile = imageFolder.createFile(imageBlob);
-      const imageUrl = imageFile.getUrl();
+      try {
+        // 이미지 데이터 확인 및 처리
+        let imageData;
+        if (imageBase64.includes(',')) {
+          imageData = imageBase64.split(",")[1];
+        } else {
+          imageData = imageBase64;
+        }
+        
+        if (!imageData) {
+          throw new Error("Invalid image data format");
+        }
 
-      // 시트 헤더 가져오기
-      const headers = sheet
-        .getRange(1, 1, 1, sheet.getLastColumn())
-        .getValues()[0];
+        // 이미지를 구글 드라이브에 저장
+        const decodedImage = Utilities.base64Decode(imageData);
+        const safeTimestamp = (timestamp || new Date().toLocaleString("ko-KR")).replace(/[:/\s]/g, "_");
+        const imageBlob = Utilities.newBlob(
+          decodedImage,
+          "image/jpeg",
+          `${name}_${safeTimestamp}.jpg`
+        );
+        const imageFolder = DriveApp.getFolderById(FOLDER_ID);
+        const imageFile = imageFolder.createFile(imageBlob);
+        const imageUrl = imageFile.getUrl();
 
-      // 모든 데이터를 한 번에 저장
-      const rowMap = {
-        요청ID: p.requestId,
-        타임스탬프: timestamp,
-        이름: name,
-        연락처: contact,
-        "이미지 URL": imageUrl,
-        "최종 한줄평": finalCritique,
-        인물: figureScore,
-        배경: backgroundScore,
-        감성: vibeScore,
-        "인물 코멘트": figureCritique,
-        "배경 코멘트": backgroundCritique,
-        "감성 코멘트": vibeCritique,
-        visitorId: p.visitorId || "",
-        clientId: p.clientId || "",
-        ip: p.ip || "",
-        ua: p.ua || "",
-        lang: p.lang || "",
-        referrer: p.referrer || "",
-        동의: consent,
-        상태: figureScore ? "DONE" : "PENDING", // 분석결과가 있으면 DONE
-        업데이트시각: new Date().toLocaleString("ko-KR"),
-      };
+        // 시트 헤더 가져오기
+        const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+        console.log("Sheet headers:", JSON.stringify(headers));
 
-      const row = headers.map((h) => rowMap[h] ?? "");
-      sheet.appendRow(row);
+        // 모든 데이터를 한 번에 저장
+        const rowMap = {
+          "요청ID": p.requestId || "",
+          "타임스탬프": timestamp || new Date().toLocaleString("ko-KR"),
+          "이름": name || "",
+          "연락처": contact || "",
+          "이미지 URL": imageUrl || "",
+          "최종 한줄평": finalCritique || "",
+          "인물": figureScore || "",
+          "배경": backgroundScore || "",
+          "감성": vibeScore || "",
+          "인물 코멘트": figureCritique || "",
+          "배경 코멘트": backgroundCritique || "",
+          "감성 코멘트": vibeCritique || "",
+          "visitorId": p.visitorId || "",
+          "clientId": p.clientId || "",
+          "ip": p.ip || "",
+          "ua": p.ua || "",
+          "lang": p.lang || "",
+          "referrer": p.referrer || "",
+          "동의": consent || "N",
+          "상태": figureScore ? "DONE" : "PENDING", // 분석결과가 있으면 DONE
+          "업데이트시각": new Date().toLocaleString("ko-KR"),
+        };
 
-      return ContentService.createTextOutput(
-        JSON.stringify({
-          ok: true,
-          requestId: p.requestId,
-          fileUrl: imageUrl,
-          action: "complete",
-        })
-      ).setMimeType(ContentService.MimeType.JSON);
+        console.log("Row data to insert:", JSON.stringify(rowMap, null, 2));
+
+        const row = headers.map((h) => rowMap[h] ?? "");
+        sheet.appendRow(row);
+
+        return ContentService.createTextOutput(
+          JSON.stringify({
+            ok: true,
+            requestId: p.requestId,
+            fileUrl: imageUrl,
+            action: "complete",
+          })
+        ).setMimeType(ContentService.MimeType.JSON);
+      } catch (imageError) {
+        console.error("Image processing error:", imageError);
+        throw new Error("Image processing failed: " + imageError.message);
+      }
     }
 
     // create: 개인정보만 먼저 기록 (기존 방식 유지)
     if (action === "create") {
+      // ... 기존 create 로직 유지 ...
       const decodedImage = Utilities.base64Decode(imageBase64.split(",")[1]);
       const imageBlob = Utilities.newBlob(
         decodedImage,
@@ -142,24 +178,22 @@ function doPost(e) {
       const imageFile = imageFolder.createFile(imageBlob);
       const imageUrl = imageFile.getUrl();
 
-      const headers = sheet
-        .getRange(1, 1, 1, sheet.getLastColumn())
-        .getValues()[0];
+      const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
       const rowMap = {
-        요청ID: p.requestId,
-        타임스탬프: timestamp,
-        이름: name,
-        연락처: contact,
+        "요청ID": p.requestId,
+        "타임스탬프": timestamp,
+        "이름": name,
+        "연락처": contact,
         "이미지 URL": imageUrl,
-        clientId: p.clientId,
-        visitorId: p.visitorId,
-        ip: p.ip,
-        ua: p.ua,
-        lang: p.lang,
-        referrer: p.referrer,
-        상태: "PENDING",
-        동의: consent,
-        업데이트시각: new Date().toLocaleString("ko-KR"),
+        "clientId": p.clientId,
+        "visitorId": p.visitorId,
+        "ip": p.ip,
+        "ua": p.ua,
+        "lang": p.lang,
+        "referrer": p.referrer,
+        "상태": "PENDING",
+        "동의": consent,
+        "업데이트시각": new Date().toLocaleString("ko-KR"),
       };
       const row = headers.map((h) => rowMap[h] ?? "");
       sheet.appendRow(row);
@@ -171,17 +205,13 @@ function doPost(e) {
 
     // update: 동일 요청ID 행 업데이트 (기존 방식 유지)
     if (action === "update") {
-      const headers = sheet
-        .getRange(1, 1, 1, sheet.getLastColumn())
-        .getValues()[0];
+      // ... 기존 update 로직 유지 ...
+      const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
       const idCol = headers.indexOf("요청ID") + 1;
       if (idCol < 1) throw new Error("요청ID 헤더를 찾을 수 없습니다.");
 
       const lastRow = sheet.getLastRow();
-      const ids = sheet
-        .getRange(2, idCol, Math.max(lastRow - 1, 0), 1)
-        .getValues()
-        .flat();
+      const ids = sheet.getRange(2, idCol, Math.max(lastRow - 1, 0), 1).getValues().flat();
       const idx = ids.indexOf(p.requestId);
       if (idx < 0) throw new Error("요청ID에 해당하는 행이 없습니다.");
       const row = idx + 2;
@@ -209,8 +239,14 @@ function doPost(e) {
     throw new Error(`Unknown action: ${action}`);
   } catch (error) {
     console.error("Apps Script Error:", error);
+    const errorResponse = {
+      result: "error",
+      message: error.message,
+      stack: error.stack
+    };
+    console.error("Error response:", JSON.stringify(errorResponse, null, 2));
     return ContentService.createTextOutput(
-      JSON.stringify({ result: "error", message: error.message })
+      JSON.stringify(errorResponse)
     ).setMimeType(ContentService.MimeType.JSON);
   }
 }

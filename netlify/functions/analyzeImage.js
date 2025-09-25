@@ -167,66 +167,62 @@ Follow the rules strictly and respond with JSON only.
       };
     }
 
-    // 2) 백그라운드에서 시트 저장 (응답 후 비동기 처리)
+    // 2) 시트 저장 (응답 전에 동기 처리하여 로그 확실히 남김)
     if (appsScriptUrl) {
       console.log("Apps Script URL found:", appsScriptUrl);
-      // Promise.resolve()를 사용하여 응답 후 백그라운드에서 실행
-      Promise.resolve().then(async () => {
-        try {
-          // FormData 대신 JSON으로 통신 (HTTP/2 PROTOCOL_ERROR 회피)
-          const payload = {
-            action: "complete",
-            requestId,
-            name,
-            contact,
-            timestamp: timestamp || new Date().toLocaleString("ko-KR"),
-            image: imageBase64,
-            consent: consent ? "Y" : "N",
-            clientId: clientId || "",
-            visitorId: visitorId || "",
-            ip: ip || "",
-            ua: ua || "",
-            lang: lang || "",
-            referrer: referrer || "",
-          };
+      try {
+        // FormData 대신 JSON으로 통신 (HTTP/2 PROTOCOL_ERROR 회피)
+        const payload = {
+          action: "complete",
+          requestId,
+          name,
+          contact,
+          timestamp: timestamp || new Date().toLocaleString("ko-KR"),
+          image: imageBase64,
+          consent: consent ? "Y" : "N",
+          clientId: clientId || "",
+          visitorId: visitorId || "",
+          ip: ip || "",
+          ua: ua || "",
+          lang: lang || "",
+          referrer: referrer || "",
+        };
 
-          if (analysisResult?.isValid) {
-            payload.figureScore = analysisResult.figureScore;
-            payload.backgroundScore = analysisResult.backgroundScore;
-            payload.vibeScore = analysisResult.vibeScore;
-            payload.figureCritique = analysisResult.figureCritique;
-            payload.backgroundCritique = analysisResult.backgroundCritique;
-            payload.vibeCritique = analysisResult.vibeCritique;
-            payload.finalCritique = analysisResult.finalCritique;
-          }
-
-          console.log(
-            "Sending to Apps Script:",
-            JSON.stringify(payload, null, 2)
-          );
-
-          const sheetResponse = await fetch(appsScriptUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
-
-          const sheetResult = await sheetResponse.text();
-          console.log("Apps Script response status:", sheetResponse.status);
-          console.log("Apps Script response:", sheetResult);
-
-          if (!sheetResponse.ok) {
-            console.error(
-              "Apps Script request failed:",
-              sheetResponse.status,
-              sheetResult
-            );
-          }
-        } catch (error) {
-          console.error("Background sheet logging failed:", error);
-          // 백그라운드 실패는 로그만 남기고 무시
+        if (analysisResult?.isValid) {
+          payload.figureScore = analysisResult.figureScore;
+          payload.backgroundScore = analysisResult.backgroundScore;
+          payload.vibeScore = analysisResult.vibeScore;
+          payload.figureCritique = analysisResult.figureCritique;
+          payload.backgroundCritique = analysisResult.backgroundCritique;
+          payload.vibeCritique = analysisResult.vibeCritique;
+          payload.finalCritique = analysisResult.finalCritique;
         }
-      });
+
+        console.log(
+          "Sending to Apps Script:",
+          JSON.stringify(payload, null, 2)
+        );
+
+        const sheetResponse = await fetch(appsScriptUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const sheetResult = await sheetResponse.text();
+        console.log("Apps Script response status:", sheetResponse.status);
+        console.log("Apps Script response:", sheetResult);
+
+        if (!sheetResponse.ok) {
+          console.error(
+            "Apps Script request failed:",
+            sheetResponse.status,
+            sheetResult
+          );
+        }
+      } catch (error) {
+        console.error("Sheet logging failed:", error);
+      }
     } else {
       console.log("No Apps Script URL configured - skipping sheet logging");
     }
